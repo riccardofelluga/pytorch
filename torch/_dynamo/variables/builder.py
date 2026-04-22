@@ -35,10 +35,11 @@ import re
 import sys
 import time
 import types
+import typing
 import weakref
 from collections.abc import Callable, MutableMapping
 from types import ModuleType
-from typing import Any, NamedTuple, NoReturn, overload, TYPE_CHECKING, Union, _UnionGenericAlias
+from typing import Any, NamedTuple, NoReturn, overload, TYPE_CHECKING, Union
 
 import sympy
 
@@ -4469,7 +4470,14 @@ class SourcelessBuilder:
             return torch._dynamo.variables.higher_order_ops.FlexAttentionBackwardHighOrderVariable(
                 value
             )
-        elif isinstance(value, (types.GenericAlias, types.UnionType, _UnionGenericAlias)):
+        elif isinstance(
+            value,
+            (
+                types.GenericAlias,
+                types.UnionType,
+                typing._UnionGenericAlias,  # type: ignore[attr-defined]  # pyrefly: ignore[missing-attribute]
+            ),
+        ):
             return TypingVariable(value)
         elif is_namedtuple(value):
             output = [
