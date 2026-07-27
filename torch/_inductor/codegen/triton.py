@@ -2940,7 +2940,7 @@ class TMACompatibilityChecker:
                 )
                 or device_type == "xpu"
             )
-            and config.triton.use_tensor_descriptor
+            and self.kernel.use_tensor_descriptor
             and has_triton_stable_tma_api()
         ):
             log.debug(
@@ -3536,7 +3536,7 @@ class TritonKernel(SIMDKernel[TritonCSEVariable]):
     def _prescan_host_tma_materializability(self) -> None:
         """Populate _host_tma_non_materializable_buffers with buffers that
         can't be expressed as a single host-side TMA descriptor."""
-        if not config.triton.use_tensor_descriptor:
+        if not self.use_tensor_descriptor:
             # Host TMA is off; mark as scanned (no bad buffers, won't change).
             self._host_tma_non_materializable_buffers = OrderedSet()
             return
@@ -3594,7 +3594,7 @@ class TritonKernel(SIMDKernel[TritonCSEVariable]):
         statically known to be a multiple of TMA_ALIGNMENT is treated as
         misaligned (conservative).
         """
-        if not config.triton.use_tensor_descriptor:
+        if not self.use_tensor_descriptor:
             return False
         if V.graph.get_current_device_or_throw().type != "cuda":
             return False
@@ -8249,6 +8249,9 @@ class TritonScheduling(SIMDScheduling):
         if not config.triton.multi_kernel:
             return kernels
 
+        def make_kernel(**overrides: Any) -> TritonKernel:
+            return self.kernel_type(*kernel_args, **{**kernel_kwargs, **overrides})
+
         optional_persistent = kernel.persistent_reduction and not kernel_kwargs.get(
             "override_persistent_reduction"
         )
@@ -8257,9 +8260,7 @@ class TritonScheduling(SIMDScheduling):
         )
         if optional_persistent:
             kernels.append(
-                self.kernel_type(
-                    *kernel_args,
-                    **kernel_kwargs,
+                make_kernel(
                     override_persistent_reduction=False,
                 )
             )
@@ -8268,21 +8269,33 @@ class TritonScheduling(SIMDScheduling):
             # for larger sizes non-cooperative gets very slow
             if V.graph.sizevars.statically_known_leq(rnumel, 65536):
                 kernels.append(
-                    other := self.kernel_type(
-                        *kernel_args,
-                        **kernel_kwargs,
+                    other := make_kernel(
                         override_cooperative_reduction=False,
                     )
                 )
                 if optional_persistent and other.persistent_reduction:
                     kernels.append(
-                        self.kernel_type(
-                            *kernel_args,
-                            **kernel_kwargs,
+                        make_kernel(
                             override_cooperative_reduction=False,
                             override_persistent_reduction=False,
                         )
                     )
+
+        if (
+            kernel.use_tensor_descriptor
+            and (config.max_autotune or config.max_autotune_pointwise)
+            and not kernel.features.contains_op("scan")
+        ):
+            kernels.extend(
+                [
+                    make_kernel(
+                        override_persistent_reduction=candidate.persistent_reduction,
+                        override_cooperative_reduction=candidate.cooperative_reduction,
+                        override_use_tensor_descriptor=False,
+                    )
+                    for candidate in kernels
+                ]
+            )
 
         if len(kernels) > 1:
             for kernel2 in kernels[1:]:

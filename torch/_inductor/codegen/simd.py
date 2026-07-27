@@ -532,6 +532,7 @@ class SIMDKernel(Kernel[CSEVariableType], Generic[CSEVariableType]):
         pid_cache: dict[str, str] | None = None,
         override_persistent_reduction: bool | None = None,
         override_cooperative_reduction: bool | None = None,
+        override_use_tensor_descriptor: bool | None = None,
         tiling_scores: dict[str, sympy.Expr] | None = None,
         mix_order_reduction: bool = False,
     ) -> None:
@@ -560,6 +561,11 @@ class SIMDKernel(Kernel[CSEVariableType], Generic[CSEVariableType]):
             override_persistent_reduction
             if override_persistent_reduction is not None
             else self.should_use_persistent_reduction()
+        )
+        self.use_tensor_descriptor: bool = (
+            override_use_tensor_descriptor
+            if override_use_tensor_descriptor is not None
+            else config.triton.use_tensor_descriptor
         )
         self.mix_order_reduction: bool = mix_order_reduction
         self.no_x_dim = self.want_no_x_dim()
